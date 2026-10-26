@@ -3,7 +3,8 @@
 Some repositories take a very long time to clone, while each of their pull requests is
 self-contained: a chapter, a module, a document that never depends on the rest of the tree.
 `ocr review-pr` reviews such a pull request without ever cloning the repository. It runs the
-same review engine as `ocr review`, with every review flag available.
+same review engine as `ocr review`, with every review flag available. To keep reviewing new
+pull request commits continuously, see [`ocr listen`](listen.md).
 
 ## How it avoids the clone
 

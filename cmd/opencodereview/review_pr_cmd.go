@@ -32,6 +32,9 @@ type reviewPROptions struct {
 	workdir   string
 	cleanup   bool
 	githubAPI string
+	// successFile is created once the review succeeded; ocr listen adopts the
+	// result of a review whose listener died only when it exists.
+	successFile string
 }
 
 var reviewPROpts reviewPROptions
@@ -87,7 +90,15 @@ func newReviewPRCmd(opts *reviewPROptions) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, stop := interruptContextWithForcedExit(cmd.Context())
 			defer stop()
-			return runReviewPR(ctx, cmd, *opts, args)
+			if err := runReviewPR(ctx, cmd, *opts, args); err != nil {
+				return err
+			}
+			if opts.successFile != "" {
+				if err := os.WriteFile(opts.successFile, nil, 0o644); err != nil {
+					return fmt.Errorf("write the success file: %w", err)
+				}
+			}
+			return nil
 		},
 	}
 	registerReviewFlags(cmd, &opts.review)
@@ -103,6 +114,8 @@ func newReviewPRCmd(opts *reviewPROptions) *cobra.Command {
 	f.StringVar(&opts.workdir, "workdir", "", "scratch directory for the snapshot (default: ~/.opencodereview/pr/<host>/<owner>/<repo>/<number>)")
 	f.BoolVar(&opts.cleanup, "cleanup", false, "remove the scratch directory after the review")
 	f.StringVar(&opts.githubAPI, "github-api", "", "GitHub REST API root (default: derived from the PR host; GHES: https://HOST/api/v3)")
+	f.StringVar(&opts.successFile, "success-file", "", "file to create once the review succeeded (used by ocr listen)")
+	_ = f.MarkHidden("success-file")
 	return cmd
 }
 

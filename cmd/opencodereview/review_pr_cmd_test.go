@@ -1296,3 +1296,25 @@ func TestReviewPRBackgroundStripsDelimitersRebuiltByRemoval(t *testing.T) {
 		})
 	}
 }
+
+func TestReviewPRSuccessFileMarksOnlySuccessfulRuns(t *testing.T) {
+	engineFailure := errors.New("rpr engine failed")
+	for _, engineErr := range []error{nil, engineFailure} {
+		t.Run(fmt.Sprint(engineErr), func(t *testing.T) {
+			h := rprInstallFakes(t)
+			f := rprNewFixture(t, h)
+			h.engineErr = engineErr
+			marker := filepath.Join(t.TempDir(), "review.ok")
+			err := rprExecute(context.Background(), rprPRArgs(f, "--success-file", marker)...)
+			_, statErr := os.Stat(marker)
+			if engineErr == nil {
+				rprRequireSuccess(t, err)
+				if statErr != nil {
+					t.Errorf("a successful review left no success file: %v", statErr)
+				}
+			} else if !errors.Is(statErr, os.ErrNotExist) {
+				t.Errorf("a failed review left a success file: stat error = %v", statErr)
+			}
+		})
+	}
+}
