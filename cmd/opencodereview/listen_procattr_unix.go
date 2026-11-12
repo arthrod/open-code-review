@@ -9,7 +9,10 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"strconv"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
 // configureListenChild puts the review child into its own process
@@ -20,7 +23,8 @@ func configureListenChild(cmd *exec.Cmd, claim *os.File) {
 	// The claim belongs to the open file description, so inheritance keeps
 	// it held if the listener dies during a review.
 	if claim != nil {
-		cmd.ExtraFiles = []*os.File{claim}
+		cmd.ExtraFiles = append(cmd.ExtraFiles, claim)
+		cmd.Args = append(cmd.Args, "--claim-fd", strconv.Itoa(2+len(cmd.ExtraFiles)))
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {
@@ -49,4 +53,20 @@ func configureListenHook(cmd *exec.Cmd) {
 		}
 		return err
 	}
+}
+
+// protectListenClaim keeps the inherited claim open for this review alone.
+func protectListenClaim(fd int) error {
+	if fd == 0 {
+		return nil
+	}
+	if fd < 3 {
+		return errors.New("invalid claim descriptor")
+	}
+	flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)
+	if err != nil {
+		return err
+	}
+	_, err = unix.FcntlInt(uintptr(fd), unix.F_SETFD, flags|unix.FD_CLOEXEC)
+	return err
 }

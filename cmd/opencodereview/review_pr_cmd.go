@@ -35,6 +35,7 @@ type reviewPROptions struct {
 	// successFile is created once the review succeeded; ocr listen adopts the
 	// result of a review whose listener died only when it exists.
 	successFile string
+	claimFD     int
 }
 
 var reviewPROpts reviewPROptions
@@ -88,6 +89,9 @@ func newReviewPRCmd(opts *reviewPROptions) *cobra.Command {
   # Any git host, no API: --base is used as the base commit
   ocr review-pr --remote https://git.example.com/acme/book.git --base 1a2b3c --head feature/ch7`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := protectListenClaim(opts.claimFD); err != nil {
+				return fmt.Errorf("protect the inherited claim: %w", err)
+			}
 			ctx, stop := interruptContextWithForcedExit(cmd.Context())
 			defer stop()
 			if err := runReviewPR(ctx, cmd, *opts, args); err != nil {
@@ -116,6 +120,8 @@ func newReviewPRCmd(opts *reviewPROptions) *cobra.Command {
 	f.StringVar(&opts.githubAPI, "github-api", "", "GitHub REST API root (default: derived from the PR host; GHES: https://HOST/api/v3)")
 	f.StringVar(&opts.successFile, "success-file", "", "file to create once the review succeeded (used by ocr listen)")
 	_ = f.MarkHidden("success-file")
+	f.IntVar(&opts.claimFD, "claim-fd", 0, "inherited claim descriptor (used by ocr listen)")
+	_ = f.MarkHidden("claim-fd")
 	return cmd
 }
 

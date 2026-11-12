@@ -662,7 +662,10 @@ func TestLsnReviewsOpenPullRequestOnce(t *testing.T) {
 	if !opts.cleanup {
 		t.Error("the listener did not ask for --cleanup")
 	}
-	want := []string{"audience", "cleanup", "format", "head", "output", "success-file", "workdir"}
+	if opts.claimFD != 3 {
+		t.Errorf("the claim descriptor %d, want 3", opts.claimFD)
+	}
+	want := []string{"audience", "claim-fd", "cleanup", "format", "head", "output", "success-file", "workdir"}
 	if strings.Join(changed, ",") != strings.Join(want, ",") {
 		t.Errorf("the listener set the flags %v, want %v", changed, want)
 	}

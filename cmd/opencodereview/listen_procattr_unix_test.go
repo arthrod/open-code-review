@@ -19,9 +19,44 @@ import (
 	"time"
 
 	"github.com/alibaba/open-code-review/internal/prsnapshot"
+	"golang.org/x/sys/unix"
 )
 
 func init() {
+	if mode := os.Getenv("OCR_CLAIM_FD_TEST"); mode != "" {
+		fd, err := strconv.Atoi(os.Getenv("OCR_CLAIM_FD"))
+		if err != nil {
+			panic(err)
+		}
+		if mode == "review" {
+			cmd := newReviewPRCmd(&reviewPROptions{})
+			cmd.SetArgs([]string{"--claim-fd", strconv.Itoa(fd)})
+			// Missing review input ends RunE after it protects the inherited claim.
+			if err := cmd.Execute(); err == nil {
+				panic("expected missing review input")
+			}
+			flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)
+			if err != nil || flags&unix.FD_CLOEXEC == 0 {
+				panic(fmt.Sprintf("claim is closed or inheritable: flags=%d err=%v", flags, err))
+			}
+			child := exec.Command(os.Args[0])
+			child.Env = append(os.Environ(), "OCR_CLAIM_FD_TEST=grandchild")
+			if out, err := child.CombinedOutput(); err != nil {
+				panic(fmt.Sprintf("grandchild: %v: %s", err, out))
+			}
+		} else {
+			inherited, err := os.NewFile(uintptr(fd), "claim").Stat()
+			original, statErr := os.Stat(os.Getenv("OCR_CLAIM_PATH"))
+			if statErr != nil {
+				panic(statErr)
+			}
+			if err == nil && os.SameFile(inherited, original) {
+				panic("grandchild inherited the claim")
+			}
+		}
+		os.Exit(0)
+	}
+
 	if os.Getenv("OCR_LSN_FAKE_PGID") == "1" {
 		fmt.Fprintln(os.Stdout, syscall.Getpgrp())
 		os.Exit(0)
@@ -83,5 +118,36 @@ func TestLsnHookTimeoutStopsWhatTheHookStarted(t *testing.T) {
 	}
 	if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
 		t.Errorf("signal 0 to %d = %v, want ESRCH", pid, err)
+	}
+}
+
+func TestLsnClaimDoesNotReachReviewGrandchildren(t *testing.T) {
+	claim, err := os.CreateTemp(t.TempDir(), "claim")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer claim.Close()
+	cmd := exec.CommandContext(context.Background(), os.Args[0])
+	configureListenChild(cmd, claim)
+	if len(cmd.Args) != 3 || cmd.Args[1] != "--claim-fd" {
+		t.Fatalf("missing claim descriptor argument: %v", cmd.Args)
+	}
+	cmd.Env = append(os.Environ(), "OCR_CLAIM_FD_TEST=review",
+		"OCR_CLAIM_FD="+cmd.Args[2], "OCR_CLAIM_PATH="+claim.Name())
+	// The Go test binary does not parse review-pr flags.
+	cmd.Args = cmd.Args[:1]
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("review process: %v: %s", err, out)
+	}
+}
+
+func TestProtectListenClaimRejectsInvalidDescriptors(t *testing.T) {
+	for _, fd := range []int{-1, 1, 2} {
+		if err := protectListenClaim(fd); err == nil {
+			t.Errorf("descriptor %d accepted", fd)
+		}
+	}
+	if err := protectListenClaim(0); err != nil {
+		t.Fatal(err)
 	}
 }

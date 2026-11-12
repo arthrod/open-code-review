@@ -6,6 +6,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"syscall"
@@ -30,4 +31,11 @@ func configureListenChild(cmd *exec.Cmd, _ *os.File) {
 // not stopped by it. On timeout only the hook's own process is killed.
 func configureListenHook(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: syscall.CREATE_NEW_PROCESS_GROUP}
+}
+
+func protectListenClaim(fd int) error {
+	if fd != 0 {
+		return errors.New("claim descriptor inheritance is unsupported on Windows")
+	}
+	return nil
 }
